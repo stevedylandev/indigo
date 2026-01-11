@@ -1,0 +1,37 @@
+services:
+  tap:
+    build:
+      context: ../..
+      dockerfile: cmd/tap/Dockerfile
+    ports:
+      - "2480:2480"
+    volumes:
+      - ./data:/data
+      # Optional: mount .env file (tap auto-loads it via godotenv)
+      # - ./.env:/data/.env:ro
+    environment:
+      # Required for your use case
+      - TAP_DATABASE_URL=sqlite:///data/tap.db
+      - TAP_COLLECTION_FILTERS=site.standard.document.*
+
+      # Optional: uncomment to enable admin auth on protected endpoints
+      # - TAP_ADMIN_PASSWORD=password
+
+      # Optional: customize relay/network settings
+      # - TAP_RELAY_URL=https://relay1.us-east.bsky.network
+      # - TAP_PLC_URL=https://plc.directory
+      - TAP_SIGNAL_COLLECTION=site.standard.document.comment
+      # - TAP_FULL_NETWORK=false
+
+      # Optional: performance tuning
+      # - TAP_FIREHOSE_PARALLELISM=10
+      # - TAP_RESYNC_PARALLELISM=5
+      # - TAP_MAX_DB_CONNS=32
+
+      # Optional: delivery mode
+      # - TAP_DISABLE_ACKS=true
+      # - TAP_WEBHOOK_URL=https://your-webhook.com/events
+
+      # Optional: logging
+      # - TAP_LOG_LEVEL=info
+    restart: unless-stopped

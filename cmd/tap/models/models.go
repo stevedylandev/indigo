@@ -70,3 +70,10 @@ type CollectionCursor struct {
 	Collection string `gorm:"primaryKey"`
 	Cursor     string `gorm:"not null"`
 }
+
+type DocumentComment struct {
+	CommentUri  string `gorm:"primaryKey"`
+	DocumentUri string `gorm:"index"`
+	Did         string `gorm:"index"`
+	CreatedAt   string
+}

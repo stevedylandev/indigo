@@ -33,24 +33,29 @@ func (ts *TapServer) Start(address string) error {
 	ts.echo.HideBanner = true
 	ts.echo.Use(middleware.LoggerWithConfig(middleware.DefaultLoggerConfig))
 
-	// Apply admin auth middleware if configured
+	// Public routes (no auth required)
+	ts.echo.GET("/health", ts.handleHealthcheck)
+	ts.echo.GET("/comments", ts.handleGetComments)
+
+	// Protected routes (require admin auth if configured)
+	admin := ts.echo.Group("")
 	if ts.adminPassword != "" {
-		ts.echo.Use(echo.WrapMiddleware(func(next http.Handler) http.Handler {
+		admin.Use(echo.WrapMiddleware(func(next http.Handler) http.Handler {
 			return auth.AdminAuthMiddleware(next.ServeHTTP, []string{ts.adminPassword})
 		}))
 	}
 
-	ts.echo.GET("/health", ts.handleHealthcheck)
-	ts.echo.GET("/channel", ts.handleChannelWebsocket)
-	ts.echo.POST("/repos/add", ts.handleAddRepos)
-	ts.echo.POST("/repos/remove", ts.handleRemoveRepos)
-	ts.echo.GET("/resolve/:did", ts.handleResolveDID)
-	ts.echo.GET("/info/:did", ts.handleInfoRepo)
-	ts.echo.GET("/stats/repo-count", ts.handleStatsRepoCount)
-	ts.echo.GET("/stats/record-count", ts.handleStatsRecordCount)
-	ts.echo.GET("/stats/outbox-buffer", ts.handleStatsOutboxBuffer)
-	ts.echo.GET("/stats/resync-buffer", ts.handleStatsResyncBuffer)
-	ts.echo.GET("/stats/cursors", ts.handleStatsCursors)
+	admin.GET("/channel", ts.handleChannelWebsocket)
+	admin.POST("/repos/add", ts.handleAddRepos)
+	admin.POST("/repos/remove", ts.handleRemoveRepos)
+	admin.GET("/resolve/:did", ts.handleResolveDID)
+	admin.GET("/info/:did", ts.handleInfoRepo)
+	admin.GET("/stats/repo-count", ts.handleStatsRepoCount)
+	admin.GET("/stats/record-count", ts.handleStatsRecordCount)
+	admin.GET("/stats/outbox-buffer", ts.handleStatsOutboxBuffer)
+	admin.GET("/stats/resync-buffer", ts.handleStatsResyncBuffer)
+	admin.GET("/stats/cursors", ts.handleStatsCursors)
+
 	return ts.echo.Start(address)
 }
 
@@ -285,4 +290,32 @@ func (ts *TapServer) handleStatsCursors(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (ts *TapServer) handleGetComments(c echo.Context) error {
+	ctx := c.Request().Context()
+	documentUri := c.QueryParam("document")
+
+	if documentUri == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "document query parameter required")
+	}
+
+	var comments []models.DocumentComment
+	if err := ts.db.WithContext(ctx).
+		Where("document_uri = ?", documentUri).
+		Order("created_at ASC").
+		Find(&comments).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to query comments")
+	}
+
+	result := make([]map[string]string, len(comments))
+	for i, c := range comments {
+		result[i] = map[string]string{
+			"uri":       c.CommentUri,
+			"did":       c.Did,
+			"createdAt": c.CreatedAt,
+		}
+	}
+
+	return c.JSON(http.StatusOK, result)
 }

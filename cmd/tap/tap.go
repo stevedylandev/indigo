@@ -237,7 +237,7 @@ func SetupDatabase(dbUrl string, maxConns int) (*gorm.DB, error) {
 
 	}
 
-	if err := db.AutoMigrate(&models.Repo{}, &models.RepoRecord{}, &models.OutboxBuffer{}, &models.ResyncBuffer{}, &models.FirehoseCursor{}, &models.ListReposCursor{}, &models.CollectionCursor{}); err != nil {
+	if err := db.AutoMigrate(&models.Repo{}, &models.RepoRecord{}, &models.OutboxBuffer{}, &models.ResyncBuffer{}, &models.FirehoseCursor{}, &models.ListReposCursor{}, &models.CollectionCursor{}, &models.DocumentComment{}); err != nil {
 		return nil, err
 	}
 

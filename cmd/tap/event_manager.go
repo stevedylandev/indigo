@@ -184,17 +184,24 @@ func (em *EventManager) AddCommit(ctx context.Context, commit *Commit, dbCallbac
 func (em *EventManager) AddRecordEvents(ctx context.Context, evts []*RecordEvt, live bool, dbCallback DBCallback) error {
 	toPut := make([]*models.RepoRecord, 0, len(evts))
 	toDel := make([]*models.RepoRecord, 0)
+	commentsToPut := make([]*models.DocumentComment, 0)
+	commentsToDel := make([]string, 0) // comment URIs to delete
 	dbEvts := make([]*models.OutboxBuffer, 0, len(evts))
 	cacheEvts := make(map[uint]OutboxEvt, len(evts))
 	evtIDs := make([]uint, 0, len(evts))
 
 	for _, evt := range evts {
+		commentUri := fmt.Sprintf("at://%s/%s/%s", evt.Did, evt.Collection, evt.Rkey)
+
 		if evt.Action == "delete" {
 			toDel = append(toDel, &models.RepoRecord{
 				Did:        evt.Did,
 				Collection: evt.Collection,
 				Rkey:       evt.Rkey,
 			})
+			if evt.Collection == "site.standard.document.comment" {
+				commentsToDel = append(commentsToDel, commentUri)
+			}
 		} else {
 			toPut = append(toPut, &models.RepoRecord{
 				Did:        evt.Did,
@@ -202,6 +209,16 @@ func (em *EventManager) AddRecordEvents(ctx context.Context, evts []*RecordEvt, 
 				Rkey:       evt.Rkey,
 				Cid:        evt.Cid,
 			})
+			if evt.Collection == "site.standard.document.comment" {
+				if docUri, createdAt := extractCommentFields(evt.Record); docUri != "" {
+					commentsToPut = append(commentsToPut, &models.DocumentComment{
+						CommentUri:  commentUri,
+						DocumentUri: docUri,
+						Did:         evt.Did,
+						CreatedAt:   createdAt,
+					})
+				}
+			}
 		}
 
 		evtID := uint(em.nextID.Add(1))
@@ -255,6 +272,22 @@ func (em *EventManager) AddRecordEvents(ctx context.Context, evts []*RecordEvt, 
 				return err
 			}
 		}
+
+		if len(commentsToDel) > 0 {
+			if err := tx.Delete(&models.DocumentComment{}, "comment_uri IN ?", commentsToDel).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(commentsToPut) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "comment_uri"}},
+				DoUpdates: clause.AssignmentColumns([]string{"document_uri", "did", "created_at"}),
+			}).CreateInBatches(commentsToPut, 100).Error; err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -347,4 +380,20 @@ func (em *EventManager) drainResyncBuffer(ctx context.Context, did string) error
 	}
 
 	return nil
+}
+
+// extractCommentFields extracts root.uri and createdAt from a site.standard.document.comment record
+func extractCommentFields(record map[string]interface{}) (documentUri string, createdAt string) {
+	if record == nil {
+		return "", ""
+	}
+	if root, ok := record["root"].(map[string]interface{}); ok {
+		if uri, ok := root["uri"].(string); ok {
+			documentUri = uri
+		}
+	}
+	if ca, ok := record["createdAt"].(string); ok {
+		createdAt = ca
+	}
+	return documentUri, createdAt
 }
